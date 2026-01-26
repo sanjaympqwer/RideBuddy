@@ -1,0 +1,52 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Users collection - users can read/write their own profile
+    match /users/{userId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // Ride requests - users can create their own, read all active ones
+    match /ride_requests/{requestId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null && request.auth.uid == resource.data.userId;
+      allow update, delete: if request.auth != null && request.auth.uid == resource.data.userId;
+    }
+
+    // Matches - users can only read/write matches they're involved in
+    match /matches/{matchId} {
+      allow read: if request.auth != null && 
+        (request.auth.uid == resource.data.userA || request.auth.uid == resource.data.userB);
+      allow create: if request.auth != null && 
+        (request.auth.uid == request.resource.data.userA || request.auth.uid == request.resource.data.userB);
+      allow update: if request.auth != null && 
+        (request.auth.uid == resource.data.userA || request.auth.uid == resource.data.userB);
+    }
+
+    // Chat messages - users can only read/write messages in chats they're part of
+    match /chats/{chatId} {
+      // First verify the chat (match) belongs to the user
+      function isParticipant() {
+        return get(/databases/$(database)/documents/matches/$(chatId)).data.userA == request.auth.uid ||
+               get(/databases/$(database)/documents/matches/$(chatId)).data.userB == request.auth.uid;
+      }
+      
+      match /messages/{messageId} {
+        allow read: if request.auth != null && isParticipant();
+        allow create: if request.auth != null && isParticipant() && 
+          request.resource.data.senderId == request.auth.uid;
+        allow update, delete: if request.auth != null && isParticipant() && 
+          resource.data.senderId == request.auth.uid;
+      }
+    }
+
+    // Potential matches - users can only read their own potential matches
+    match /potential_matches/{matchId} {
+      allow read: if request.auth != null && request.auth.uid == resource.data.userId;
+      allow update: if request.auth != null && request.auth.uid == resource.data.userId;
+      allow delete: if request.auth != null && request.auth.uid == resource.data.userId;
+    }
+  }
+}
+
