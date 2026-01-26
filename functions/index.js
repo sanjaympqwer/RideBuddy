@@ -19,14 +19,26 @@ function calculateDistance(lat1, lon1, lat2, lon2) {
 
 // Helper function to check if time windows overlap (within 30 minutes)
 function timeWindowsOverlap(timeStart1, timeEnd1, timeStart2, timeEnd2) {
-  const start1 = new Date(timeStart1).getTime();
-  const end1 = new Date(timeEnd1).getTime();
-  const start2 = new Date(timeStart2).getTime();
-  const end2 = new Date(timeEnd2).getTime();
+  try {
+    const start1 = new Date(timeStart1).getTime();
+    const end1 = new Date(timeEnd1).getTime();
+    const start2 = new Date(timeStart2).getTime();
+    const end2 = new Date(timeEnd2).getTime();
 
-  // Check if time windows are within 30 minutes of each other
-  const diff = Math.abs(start1 - start2);
-  return diff <= 30 * 60 * 1000; // 30 minutes in milliseconds
+    // Check if time windows are within 30 minutes of each other
+    // Compare start times (most important)
+    const diff = Math.abs(start1 - start2);
+    const overlap = diff <= 30 * 60 * 1000; // 30 minutes in milliseconds
+    
+    // Also check if the windows actually overlap
+    const windowsOverlap = !(end1 < start2 || end2 < start1);
+    
+    return overlap || windowsOverlap;
+  } catch (error) {
+    console.error('Error in timeWindowsOverlap:', error);
+    // If there's an error parsing dates, be lenient and return true
+    return true;
+  }
 }
 
 // Helper function to check route direction similarity (simplified)
@@ -105,16 +117,31 @@ function checkKeywordMatch(text1, text2, checkPincode = false) {
   // Also check if addresses are very similar (normalized comparison)
   const normalized1 = text1.toLowerCase().replace(/[^a-z0-9]/g, '');
   const normalized2 = text2.toLowerCase().replace(/[^a-z0-9]/g, '');
-  const exactTextMatch = normalized1 === normalized2 || 
-                         normalized1.includes(normalized2) || 
-                         normalized2.includes(normalized1);
+  
+  // Check for exact match after normalization
+  const exactTextMatch = normalized1 === normalized2;
+  
+  // Check if one address contains the other (for cases like "123 Main St" vs "123 Main Street")
+  const containsMatch = normalized1.length > 10 && normalized2.length > 10 && 
+                        (normalized1.includes(normalized2) || normalized2.includes(normalized1));
+  
+  // If addresses are very similar (normalized), consider it a strong match
+  if (exactTextMatch) {
+    return { match: true, score: 100, commonKeywords: [], pincodeMatch: pincodeMatch || false };
+  }
+  
+  // If one contains the other and they're substantial, boost score significantly
+  if (containsMatch) {
+    similarityScore = Math.max(similarityScore, 80);
+  }
   
   // Consider it a match if:
   // - Exact text match (normalized) OR
-  // - At least 20% keywords match (lowered from 30%) OR
-  // - 1+ common keywords (lowered from 2) OR
+  // - Contains match (one address contains the other) OR
+  // - At least 20% keywords match OR
+  // - 1+ common keywords OR
   // - Pincode matches
-  const isMatch = exactTextMatch || similarityScore >= 20 || bestMatches >= 1 || pincodeMatch;
+  const isMatch = exactTextMatch || containsMatch || similarityScore >= 20 || bestMatches >= 1 || pincodeMatch;
   
   return {
     match: isMatch,
@@ -156,6 +183,17 @@ exports.findMatches = functions.https.onCall(async (data, context) => {
       .where('status', '==', 'active')
       .get();
 
+    console.log(`[findMatches] User ${userId} has request ${rideRequestId}`);
+    console.log(`[findMatches] Found ${allRideRequests.docs.length} active ride requests total`);
+    console.log(`[findMatches] User's request:`, {
+      pickupText: userRideRequest.pickupText,
+      dropText: userRideRequest.dropText,
+      pickupLatLng: userRideRequest.pickupLatLng,
+      dropLatLng: userRideRequest.dropLatLng,
+      timeStart: userRideRequest.timeStart,
+      timeEnd: userRideRequest.timeEnd
+    });
+
     const matches = [];
 
     for (const doc of allRideRequests.docs) {
@@ -164,6 +202,13 @@ exports.findMatches = functions.https.onCall(async (data, context) => {
 
       // Skip own request
       if (otherRideRequest.userId === userId) {
+        continue;
+      }
+
+      // Validate required fields
+      if (!otherRideRequest.pickupLatLng || !otherRideRequest.pickupText || 
+          !otherRideRequest.dropLatLng || !otherRideRequest.dropText) {
+        console.log(`[findMatches] Skipping request ${otherRideRequestId} - missing required fields`);
         continue;
       }
 
@@ -223,6 +268,13 @@ exports.findMatches = functions.https.onCall(async (data, context) => {
       
       // Special case: If both pickup AND drop match, it's definitely a match
       const bothLocationsMatch = pickupKeywordMatch.match && dropKeywordMatch.match;
+      
+      // If both locations match exactly, force a match regardless of other criteria
+      if (bothLocationsMatch) {
+        compatibilityScore = Math.max(compatibilityScore, 50); // Ensure minimum score
+        passedChecks = Math.max(passedChecks, 2); // Ensure minimum checks
+        console.log(`[findMatches] ⭐ Both locations match exactly - forcing match`);
+      }
 
       // 4. Check route direction similarity (polyline overlap)
       // This is optional - don't penalize if polylines are missing
@@ -260,13 +312,39 @@ exports.findMatches = functions.https.onCall(async (data, context) => {
         passedChecks++;
       }
 
+      // Debug logging
+      console.log(`[findMatches] Checking match for request ${otherRideRequestId}:`, {
+        userId: otherRideRequest.userId,
+        pickupText1: userRideRequest.pickupText,
+        pickupText2: otherRideRequest.pickupText,
+        dropText1: userRideRequest.dropText,
+        dropText2: otherRideRequest.dropText,
+        pickupMatch: pickupKeywordMatch.match,
+        pickupScore: pickupKeywordMatch.score,
+        dropMatch: dropKeywordMatch.match,
+        dropScore: dropKeywordMatch.score,
+        bothLocationsMatch: bothLocationsMatch,
+        distance: distance,
+        timeOverlap: timeWindowsOverlap(
+          userRideRequest.timeStart,
+          userRideRequest.timeEnd,
+          otherRideRequest.timeStart,
+          otherRideRequest.timeEnd
+        ),
+        compatibilityScore: compatibilityScore,
+        passedChecks: passedChecks
+      });
+
       // Include matches if:
-      // - Both pickup AND drop locations match (exact match) OR
-      // - At least 2 passed checks OR
-      // - Score >= 30 (lowered from 40)
+      // - Both pickup AND drop locations match (exact match) - ALWAYS MATCH regardless of other criteria OR
+      // - At least 2 passed checks AND score >= 20 OR
+      // - Score >= 30
       // This allows keyword-based matches even if distance is slightly farther
-      if (bothLocationsMatch || (passedChecks >= 2 || compatibilityScore >= 30) && compatibilityScore >= 20) {
-        console.log(`Match found: pickupMatch=${pickupKeywordMatch.match}, dropMatch=${dropKeywordMatch.match}, score=${compatibilityScore}, checks=${passedChecks}`);
+      const isMatch = bothLocationsMatch || 
+                     ((passedChecks >= 2 || compatibilityScore >= 30) && compatibilityScore >= 20);
+      
+      if (isMatch) {
+        console.log(`[findMatches] ✓ MATCH FOUND: pickupMatch=${pickupKeywordMatch.match}, dropMatch=${dropKeywordMatch.match}, score=${compatibilityScore}, checks=${passedChecks}, distance=${distance}km`);
         // Get other user's profile
         const otherUserDoc = await db.collection('users').doc(otherRideRequest.userId).get();
         const otherUser = otherUserDoc.exists ? otherUserDoc.data() : {};
@@ -291,6 +369,11 @@ exports.findMatches = functions.https.onCall(async (data, context) => {
 
     // Sort by compatibility score (highest first)
     matches.sort((a, b) => b.compatibilityScore - a.compatibilityScore);
+
+    console.log(`[findMatches] Total matches found: ${matches.length}`);
+    if (matches.length === 0) {
+      console.log(`[findMatches] ⚠️ No matches found. Check logs above for details.`);
+    }
 
     return {
       success: true,
@@ -325,6 +408,17 @@ exports.onRideRequestCreated = functions.firestore
         .where('status', '==', 'active')
         .get();
 
+      console.log(`[onRideRequestCreated] New request ${newRequestId} by user ${newRequest.userId}`);
+      console.log(`[onRideRequestCreated] Found ${allRequestsSnapshot.docs.length} active ride requests total`);
+      console.log(`[onRideRequestCreated] New request details:`, {
+        pickupText: newRequest.pickupText,
+        dropText: newRequest.dropText,
+        pickupLatLng: newRequest.pickupLatLng,
+        dropLatLng: newRequest.dropLatLng,
+        timeStart: newRequest.timeStart,
+        timeEnd: newRequest.timeEnd
+      });
+
       const matches = [];
 
       for (const doc of allRequestsSnapshot.docs) {
@@ -333,6 +427,13 @@ exports.onRideRequestCreated = functions.firestore
 
         // Skip own request
         if (otherRequestId === newRequestId || otherRequest.userId === newRequest.userId) {
+          continue;
+        }
+
+        // Validate required fields
+        if (!otherRequest.pickupLatLng || !otherRequest.pickupText || 
+            !otherRequest.dropLatLng || !otherRequest.dropText) {
+          console.log(`[onRideRequestCreated] Skipping request ${otherRequestId} - missing required fields`);
           continue;
         }
 
@@ -391,6 +492,13 @@ exports.onRideRequestCreated = functions.firestore
         
         // Special case: If both pickup AND drop match, it's definitely a match
         const bothLocationsMatch = pickupKeywordMatch.match && dropKeywordMatch.match;
+        
+        // If both locations match exactly, force a match regardless of other criteria
+        if (bothLocationsMatch) {
+          compatibilityScore = Math.max(compatibilityScore, 50); // Ensure minimum score
+          passedChecks = Math.max(passedChecks, 2); // Ensure minimum checks
+          console.log(`[onRideRequestCreated] ⭐ Both locations match exactly - forcing match`);
+        }
 
         // 4. Route similarity (optional - don't penalize if polylines are missing)
         if (newRequest.polyline && otherRequest.polyline) {
@@ -427,13 +535,39 @@ exports.onRideRequestCreated = functions.firestore
           passedChecks++;
         }
 
+        // Debug logging
+        console.log(`[onRideRequestCreated] Checking match for request ${otherRequestId}:`, {
+          userId: otherRequest.userId,
+          pickupText1: newRequest.pickupText,
+          pickupText2: otherRequest.pickupText,
+          dropText1: newRequest.dropText,
+          dropText2: otherRequest.dropText,
+          pickupMatch: pickupKeywordMatch.match,
+          pickupScore: pickupKeywordMatch.score,
+          dropMatch: dropKeywordMatch.match,
+          dropScore: dropKeywordMatch.score,
+          bothLocationsMatch: bothLocationsMatch,
+          distance: distance,
+          timeOverlap: timeWindowsOverlap(
+            newRequest.timeStart,
+            newRequest.timeEnd,
+            otherRequest.timeStart,
+            otherRequest.timeEnd
+          ),
+          compatibilityScore: compatibilityScore,
+          passedChecks: passedChecks
+        });
+
         // If it's a match, create potential match records for both users
         // Match if:
-        // - Both pickup AND drop locations match (exact match) OR
-        // - At least 2 passed checks OR
-        // - Score >= 30 (lowered from 40)
-        if (bothLocationsMatch || ((passedChecks >= 2 || compatibilityScore >= 30) && compatibilityScore >= 20)) {
-          console.log(`Match criteria met - bothLocationsMatch: ${bothLocationsMatch}, passedChecks: ${passedChecks}, score: ${compatibilityScore}`);
+        // - Both pickup AND drop locations match (exact match) - ALWAYS MATCH regardless of other criteria OR
+        // - At least 2 passed checks AND score >= 20 OR
+        // - Score >= 30
+        const isMatch = bothLocationsMatch || 
+                       ((passedChecks >= 2 || compatibilityScore >= 30) && compatibilityScore >= 20);
+        
+        if (isMatch) {
+          console.log(`[onRideRequestCreated] ✓ MATCH FOUND: pickupMatch=${pickupKeywordMatch.match}, dropMatch=${dropKeywordMatch.match}, score=${compatibilityScore}, checks=${passedChecks}, distance=${distance}km`);
           // Get user profiles
           const newUserDoc = await db.collection('users').doc(newRequest.userId).get();
           const otherUserDoc = await db.collection('users').doc(otherRequest.userId).get();
@@ -484,8 +618,12 @@ exports.onRideRequestCreated = functions.firestore
           });
 
           console.log(`Match found between ${newRequest.userId} and ${otherRequest.userId}`);
+        } else {
+          console.log(`[onRideRequestCreated] ✗ No match: score=${compatibilityScore}, checks=${passedChecks}, bothLocationsMatch=${bothLocationsMatch}`);
         }
       }
+
+      console.log(`[onRideRequestCreated] Processing complete. Total matches created: ${matches.length}`);
 
       return null;
     } catch (error) {
