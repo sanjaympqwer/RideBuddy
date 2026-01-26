@@ -84,21 +84,37 @@ function checkKeywordMatch(text1, text2, checkPincode = false) {
     return { match: false, score: 0, pincodeMatch: false };
   }
   
-  // Find common keywords
+  // Find common keywords (exact match)
   const commonKeywords = keywords1.filter(kw => keywords2.includes(kw));
+  
+  // Also check for substring matches (more lenient)
+  const substringMatches = keywords1.filter(kw1 => 
+    keywords2.some(kw2 => kw1.includes(kw2) || kw2.includes(kw1))
+  );
+  
+  // Use the better of exact matches or substring matches
+  const bestMatches = Math.max(commonKeywords.length, substringMatches.length);
   const totalKeywords = Math.max(keywords1.length, keywords2.length);
-  let similarityScore = (commonKeywords.length / totalKeywords) * 100;
+  let similarityScore = totalKeywords > 0 ? (bestMatches / totalKeywords) * 100 : 0;
   
   // Boost score if pincode matches
   if (pincodeMatch) {
     similarityScore = Math.min(100, similarityScore + 30); // Add 30% boost for pincode match
   }
   
+  // Also check if addresses are very similar (normalized comparison)
+  const normalized1 = text1.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const normalized2 = text2.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const exactTextMatch = normalized1 === normalized2 || 
+                         normalized1.includes(normalized2) || 
+                         normalized2.includes(normalized1);
+  
   // Consider it a match if:
-  // - At least 30% keywords match OR
-  // - 2+ common keywords OR
-  // - Pincode matches (for pickup locations)
-  const isMatch = similarityScore >= 30 || commonKeywords.length >= 2 || pincodeMatch;
+  // - Exact text match (normalized) OR
+  // - At least 20% keywords match (lowered from 30%) OR
+  // - 1+ common keywords (lowered from 2) OR
+  // - Pincode matches
+  const isMatch = exactTextMatch || similarityScore >= 20 || bestMatches >= 1 || pincodeMatch;
   
   return {
     match: isMatch,
@@ -188,22 +204,38 @@ exports.findMatches = functions.https.onCall(async (data, context) => {
         compatibilityScore += 5; // Partial score for some keyword overlap
       }
 
-      // 3. Check keyword matching for drop location
+      // 3. Check keyword matching for drop location (including pincode)
       const dropKeywordMatch = checkKeywordMatch(
         userRideRequest.dropText,
-        otherRideRequest.dropText
+        otherRideRequest.dropText,
+        true // Enable pincode matching for drop locations too
       );
       if (dropKeywordMatch.match) {
         compatibilityScore += 20; // Higher weight for destination match
         passedChecks++;
+        // Bonus points if pincode matches
+        if (dropKeywordMatch.pincodeMatch) {
+          compatibilityScore += 5; // Extra 5 points for pincode match
+        }
       } else if (dropKeywordMatch.score > 20) {
         compatibilityScore += 10; // Partial score for some keyword overlap
       }
+      
+      // Special case: If both pickup AND drop match, it's definitely a match
+      const bothLocationsMatch = pickupKeywordMatch.match && dropKeywordMatch.match;
 
       // 4. Check route direction similarity (polyline overlap)
-      if (checkRouteSimilarity(userRideRequest.polyline, otherRideRequest.polyline)) {
-        compatibilityScore += 15;
-        passedChecks++;
+      // This is optional - don't penalize if polylines are missing
+      if (userRideRequest.polyline && otherRideRequest.polyline) {
+        if (checkRouteSimilarity(userRideRequest.polyline, otherRideRequest.polyline)) {
+          compatibilityScore += 15;
+          passedChecks++;
+        }
+      } else {
+        // If polylines are missing but locations match, still give partial credit
+        if (pickupKeywordMatch.match && dropKeywordMatch.match) {
+          compatibilityScore += 10;
+        }
       }
 
       // 5. Check time window overlap (within 30 minutes)
@@ -228,9 +260,13 @@ exports.findMatches = functions.https.onCall(async (data, context) => {
         passedChecks++;
       }
 
-      // Include matches with at least 2 passed checks OR score >= 40
+      // Include matches if:
+      // - Both pickup AND drop locations match (exact match) OR
+      // - At least 2 passed checks OR
+      // - Score >= 30 (lowered from 40)
       // This allows keyword-based matches even if distance is slightly farther
-      if ((passedChecks >= 2 || compatibilityScore >= 40) && compatibilityScore >= 30) {
+      if (bothLocationsMatch || (passedChecks >= 2 || compatibilityScore >= 30) && compatibilityScore >= 20) {
+        console.log(`Match found: pickupMatch=${pickupKeywordMatch.match}, dropMatch=${dropKeywordMatch.match}, score=${compatibilityScore}, checks=${passedChecks}`);
         // Get other user's profile
         const otherUserDoc = await db.collection('users').doc(otherRideRequest.userId).get();
         const otherUser = otherUserDoc.exists ? otherUserDoc.data() : {};
@@ -336,22 +372,37 @@ exports.onRideRequestCreated = functions.firestore
           compatibilityScore += 5;
         }
 
-        // 3. Drop keyword match (most important)
+        // 3. Drop keyword match (most important, including pincode)
         const dropKeywordMatch = checkKeywordMatch(
           newRequest.dropText,
-          otherRequest.dropText
+          otherRequest.dropText,
+          true // Enable pincode matching for drop locations too
         );
         if (dropKeywordMatch.match) {
           compatibilityScore += 20;
           passedChecks++;
+          // Bonus points if pincode matches
+          if (dropKeywordMatch.pincodeMatch) {
+            compatibilityScore += 5; // Extra 5 points for pincode match
+          }
         } else if (dropKeywordMatch.score > 20) {
           compatibilityScore += 10;
         }
+        
+        // Special case: If both pickup AND drop match, it's definitely a match
+        const bothLocationsMatch = pickupKeywordMatch.match && dropKeywordMatch.match;
 
-        // 4. Route similarity
-        if (checkRouteSimilarity(newRequest.polyline, otherRequest.polyline)) {
-          compatibilityScore += 15;
-          passedChecks++;
+        // 4. Route similarity (optional - don't penalize if polylines are missing)
+        if (newRequest.polyline && otherRequest.polyline) {
+          if (checkRouteSimilarity(newRequest.polyline, otherRequest.polyline)) {
+            compatibilityScore += 15;
+            passedChecks++;
+          }
+        } else {
+          // If polylines are missing but both locations match, still give partial credit
+          if (pickupKeywordMatch.match && dropKeywordMatch.match) {
+            compatibilityScore += 10;
+          }
         }
 
         // 5. Time window
@@ -377,7 +428,12 @@ exports.onRideRequestCreated = functions.firestore
         }
 
         // If it's a match, create potential match records for both users
-        if ((passedChecks >= 2 || compatibilityScore >= 40) && compatibilityScore >= 30) {
+        // Match if:
+        // - Both pickup AND drop locations match (exact match) OR
+        // - At least 2 passed checks OR
+        // - Score >= 30 (lowered from 40)
+        if (bothLocationsMatch || ((passedChecks >= 2 || compatibilityScore >= 30) && compatibilityScore >= 20)) {
+          console.log(`Match criteria met - bothLocationsMatch: ${bothLocationsMatch}, passedChecks: ${passedChecks}, score: ${compatibilityScore}`);
           // Get user profiles
           const newUserDoc = await db.collection('users').doc(newRequest.userId).get();
           const otherUserDoc = await db.collection('users').doc(otherRequest.userId).get();
