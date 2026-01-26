@@ -17,16 +17,16 @@ function calculateDistance(lat1, lon1, lat2, lon2) {
   return R * c;
 }
 
-// Helper function to check if time windows overlap (within 15 minutes)
+// Helper function to check if time windows overlap (within 30 minutes)
 function timeWindowsOverlap(timeStart1, timeEnd1, timeStart2, timeEnd2) {
   const start1 = new Date(timeStart1).getTime();
   const end1 = new Date(timeEnd1).getTime();
   const start2 = new Date(timeStart2).getTime();
   const end2 = new Date(timeEnd2).getTime();
 
-  // Check if time windows are within 15 minutes of each other
+  // Check if time windows are within 30 minutes of each other
   const diff = Math.abs(start1 - start2);
-  return diff <= 15 * 60 * 1000; // 15 minutes in milliseconds
+  return diff <= 30 * 60 * 1000; // 30 minutes in milliseconds
 }
 
 // Helper function to check route direction similarity (simplified)
@@ -40,40 +40,71 @@ function checkRouteSimilarity(polyline1, polyline2) {
   return polyline1.length > 0 && polyline2.length > 0;
 }
 
-// Helper function to extract keywords from address text
+// Helper function to extract keywords and pincode from address text
 function extractKeywords(text) {
-  if (!text) return [];
+  if (!text) return { keywords: [], pincode: null };
+  
+  // Extract pincode (6-digit number, typically Indian pincode format)
+  const pincodeMatch = text.match(/\b\d{6}\b/);
+  const pincode = pincodeMatch ? pincodeMatch[0] : null;
+  
   // Convert to lowercase and split by common separators
   const words = text.toLowerCase()
     .replace(/[,#]/g, ' ')
+    .replace(/\b\d{6}\b/g, '') // Remove pincode from keywords
     .split(/\s+/)
     .filter(word => word.length > 2); // Filter out short words
-  return words;
+  
+  return {
+    keywords: words,
+    pincode: pincode
+  };
 }
 
 // Helper function to check keyword similarity between addresses
-function checkKeywordMatch(text1, text2) {
-  if (!text1 || !text2) return { match: false, score: 0 };
+function checkKeywordMatch(text1, text2, checkPincode = false) {
+  if (!text1 || !text2) return { match: false, score: 0, pincodeMatch: false };
   
-  const keywords1 = extractKeywords(text1);
-  const keywords2 = extractKeywords(text2);
+  const extracted1 = extractKeywords(text1);
+  const extracted2 = extractKeywords(text2);
+  
+  const keywords1 = extracted1.keywords;
+  const keywords2 = extracted2.keywords;
+  const pincode1 = extracted1.pincode;
+  const pincode2 = extracted2.pincode;
+  
+  // Check pincode match (if enabled and both have pincodes)
+  const pincodeMatch = checkPincode && pincode1 && pincode2 && pincode1 === pincode2;
   
   if (keywords1.length === 0 || keywords2.length === 0) {
-    return { match: false, score: 0 };
+    // If no keywords but pincode matches, still return a match
+    if (pincodeMatch) {
+      return { match: true, score: 100, commonKeywords: [], pincodeMatch: true };
+    }
+    return { match: false, score: 0, pincodeMatch: false };
   }
   
   // Find common keywords
   const commonKeywords = keywords1.filter(kw => keywords2.includes(kw));
   const totalKeywords = Math.max(keywords1.length, keywords2.length);
-  const similarityScore = (commonKeywords.length / totalKeywords) * 100;
+  let similarityScore = (commonKeywords.length / totalKeywords) * 100;
   
-  // Consider it a match if at least 30% keywords match or if there are 2+ common keywords
-  const isMatch = similarityScore >= 30 || commonKeywords.length >= 2;
+  // Boost score if pincode matches
+  if (pincodeMatch) {
+    similarityScore = Math.min(100, similarityScore + 30); // Add 30% boost for pincode match
+  }
+  
+  // Consider it a match if:
+  // - At least 30% keywords match OR
+  // - 2+ common keywords OR
+  // - Pincode matches (for pickup locations)
+  const isMatch = similarityScore >= 30 || commonKeywords.length >= 2 || pincodeMatch;
   
   return {
     match: isMatch,
     score: similarityScore,
-    commonKeywords: commonKeywords
+    commonKeywords: commonKeywords,
+    pincodeMatch: pincodeMatch || false
   };
 }
 
@@ -140,14 +171,19 @@ exports.findMatches = functions.https.onCall(async (data, context) => {
         compatibilityScore += 10; // Partial score for slightly farther
       }
 
-      // 2. Check keyword matching for pickup location
+      // 2. Check keyword matching for pickup location (including pincode)
       const pickupKeywordMatch = checkKeywordMatch(
         userRideRequest.pickupText,
-        otherRideRequest.pickupText
+        otherRideRequest.pickupText,
+        true // Enable pincode matching for pickup locations
       );
       if (pickupKeywordMatch.match) {
         compatibilityScore += 15;
         passedChecks++;
+        // Bonus points if pincode matches
+        if (pickupKeywordMatch.pincodeMatch) {
+          compatibilityScore += 5; // Extra 5 points for pincode match
+        }
       } else if (pickupKeywordMatch.score > 20) {
         compatibilityScore += 5; // Partial score for some keyword overlap
       }
@@ -170,7 +206,7 @@ exports.findMatches = functions.https.onCall(async (data, context) => {
         passedChecks++;
       }
 
-      // 5. Check time window overlap (within 15 minutes)
+      // 5. Check time window overlap (within 30 minutes)
       if (timeWindowsOverlap(
         userRideRequest.timeStart,
         userRideRequest.timeEnd,
@@ -283,14 +319,19 @@ exports.onRideRequestCreated = functions.firestore
           compatibilityScore += 10;
         }
 
-        // 2. Pickup keyword match
+        // 2. Pickup keyword match (including pincode)
         const pickupKeywordMatch = checkKeywordMatch(
           newRequest.pickupText,
-          otherRequest.pickupText
+          otherRequest.pickupText,
+          true // Enable pincode matching for pickup locations
         );
         if (pickupKeywordMatch.match) {
           compatibilityScore += 15;
           passedChecks++;
+          // Bonus points if pincode matches
+          if (pickupKeywordMatch.pincodeMatch) {
+            compatibilityScore += 5; // Extra 5 points for pincode match
+          }
         } else if (pickupKeywordMatch.score > 20) {
           compatibilityScore += 5;
         }
