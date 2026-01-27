@@ -720,3 +720,56 @@ exports.handleMatchAcceptance = functions.firestore
     return null;
   });
 
+// Scheduled function to automatically expire old ride requests (runs every 5 minutes)
+exports.expireOldRideRequests = functions.pubsub
+  .schedule('every 5 minutes')
+  .onRun(async (context) => {
+    console.log('[expireOldRideRequests] Starting scheduled cleanup...');
+    
+    try {
+      const now = Date.now();
+      const expiryTime = new Date(now - REQUEST_EXPIRY_MS);
+      
+      // Get all active ride requests that are older than 30 minutes
+      const expiredRequestsSnapshot = await db.collection('ride_requests')
+        .where('status', '==', 'active')
+        .where('createdAt', '<', expiryTime.toISOString())
+        .limit(100) // Process in batches to avoid timeout
+        .get();
+      
+      if (expiredRequestsSnapshot.empty) {
+        console.log('[expireOldRideRequests] No expired requests found');
+        return null;
+      }
+      
+      console.log(`[expireOldRideRequests] Found ${expiredRequestsSnapshot.docs.length} expired requests`);
+      
+      const batch = db.batch();
+      let updateCount = 0;
+      
+      for (const doc of expiredRequestsSnapshot.docs) {
+        const request = doc.data();
+        
+        // Double-check expiry (in case createdAt format is inconsistent)
+        if (isRequestExpired(request)) {
+          batch.update(doc.ref, {
+            status: 'inactive',
+            expiredAt: admin.firestore.FieldValue.serverTimestamp(),
+            expiredBy: 'scheduled_function'
+          });
+          updateCount++;
+        }
+      }
+      
+      if (updateCount > 0) {
+        await batch.commit();
+        console.log(`[expireOldRideRequests] Successfully expired ${updateCount} ride requests`);
+      }
+      
+      return null;
+    } catch (error) {
+      console.error('[expireOldRideRequests] Error expiring requests:', error);
+      return null;
+    }
+  });
+

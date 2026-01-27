@@ -154,20 +154,36 @@ const Matches = () => {
     );
     
     const unsubscribe1 = onSnapshot(matchesQuery, async (snapshot) => {
-      const requests = await Promise.all(
-        snapshot.docs.map(async (doc) => {
-          const data = doc.data();
-          const otherUserDoc = await getDoc(doc(db, 'users', data.userB));
-          const otherUser = otherUserDoc.exists() ? otherUserDoc.data() : {};
-          return {
-            id: doc.id,
-            ...data,
-            otherUser,
-            isIncoming: false
-          };
-        })
-      );
-      updateMatchLists(requests, 'sent');
+      try {
+        const requests = await Promise.all(
+          snapshot.docs.map(async (doc) => {
+            try {
+              const data = doc.data();
+              if (!data || !data.userB) {
+                console.warn('[fetchMatchRequests] Missing userB in match:', doc.id);
+                return null;
+              }
+              const otherUserDoc = await getDoc(doc(db, 'users', data.userB));
+              const otherUser = otherUserDoc.exists() ? otherUserDoc.data() : {};
+              return {
+                id: doc.id,
+                ...data,
+                otherUser,
+                isIncoming: false
+              };
+            } catch (err) {
+              console.error('[fetchMatchRequests] Error processing doc:', doc.id, err);
+              return null;
+            }
+          })
+        );
+        const validRequests = requests.filter(r => r !== null);
+        updateMatchLists(validRequests, 'sent');
+      } catch (error) {
+        console.error('[fetchMatchRequests] Error in onSnapshot (userA):', error);
+      }
+    }, (error) => {
+      console.error('[fetchMatchRequests] onSnapshot error (userA):', error);
     });
 
     const matchesQuery2 = query(
@@ -176,20 +192,36 @@ const Matches = () => {
     );
     
     const unsubscribe2 = onSnapshot(matchesQuery2, async (snapshot) => {
-      const requests = await Promise.all(
-        snapshot.docs.map(async (doc) => {
-          const data = doc.data();
-          const otherUserDoc = await getDoc(doc(db, 'users', data.userA));
-          const otherUser = otherUserDoc.exists() ? otherUserDoc.data() : {};
-          return {
-            id: doc.id,
-            ...data,
-            otherUser,
-            isIncoming: true
-          };
-        })
-      );
-      updateMatchLists(requests, 'received');
+      try {
+        const requests = await Promise.all(
+          snapshot.docs.map(async (doc) => {
+            try {
+              const data = doc.data();
+              if (!data || !data.userA) {
+                console.warn('[fetchMatchRequests] Missing userA in match:', doc.id);
+                return null;
+              }
+              const otherUserDoc = await getDoc(doc(db, 'users', data.userA));
+              const otherUser = otherUserDoc.exists() ? otherUserDoc.data() : {};
+              return {
+                id: doc.id,
+                ...data,
+                otherUser,
+                isIncoming: true
+              };
+            } catch (err) {
+              console.error('[fetchMatchRequests] Error processing doc:', doc.id, err);
+              return null;
+            }
+          })
+        );
+        const validRequests = requests.filter(r => r !== null);
+        updateMatchLists(validRequests, 'received');
+      } catch (error) {
+        console.error('[fetchMatchRequests] Error in onSnapshot (userB):', error);
+      }
+    }, (error) => {
+      console.error('[fetchMatchRequests] onSnapshot error (userB):', error);
     });
 
     return () => {
@@ -199,18 +231,29 @@ const Matches = () => {
   };
 
   const updateMatchLists = (allRequests, source) => {
-    const pending = allRequests.filter(r => r.status === 'pending');
-    const mutual = allRequests.filter(r => r.status === 'mutual' || r.status === 'accepted');
-    
-    setPendingRequests(prev => {
-      const combined = [...prev.filter(r => r.isIncoming !== (source === 'received')), ...pending];
-      return combined.filter((v, i, a) => a.findIndex(t => t.id === v.id) === i);
-    });
-    
-    setMutualMatches(prev => {
-      const combined = [...prev, ...mutual];
-      return combined.filter((v, i, a) => a.findIndex(t => t.id === v.id) === i);
-    });
+    try {
+      if (!Array.isArray(allRequests)) {
+        console.error('[updateMatchLists] allRequests is not an array:', allRequests);
+        return;
+      }
+
+      const pending = allRequests.filter(r => r && r.status === 'pending');
+      const mutual = allRequests.filter(r => r && (r.status === 'mutual' || r.status === 'accepted'));
+      
+      setPendingRequests(prev => {
+        if (!Array.isArray(prev)) prev = [];
+        const combined = [...prev.filter(r => r && r.isIncoming !== (source === 'received')), ...pending];
+        return combined.filter((v, i, a) => v && v.id && a.findIndex(t => t && t.id === v.id) === i);
+      });
+      
+      setMutualMatches(prev => {
+        if (!Array.isArray(prev)) prev = [];
+        const combined = [...prev, ...mutual];
+        return combined.filter((v, i, a) => v && v.id && a.findIndex(t => t && t.id === v.id) === i);
+      });
+    } catch (error) {
+      console.error('[updateMatchLists] Error updating match lists:', error, { allRequests, source });
+    }
   };
 
   const handleSendRequest = async (match) => {
