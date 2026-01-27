@@ -4,6 +4,22 @@ admin.initializeApp();
 
 const db = admin.firestore();
 
+// Ride request expiry configuration (30 minutes)
+const REQUEST_EXPIRY_MS = 30 * 60 * 1000;
+
+// Helper to check if a ride request is older than the expiry window
+function isRequestExpired(request) {
+  try {
+    if (!request || !request.createdAt) return false;
+    const createdAtMs = new Date(request.createdAt).getTime();
+    if (Number.isNaN(createdAtMs)) return false;
+    return Date.now() - createdAtMs > REQUEST_EXPIRY_MS;
+  } catch (e) {
+    console.error('[isRequestExpired] Failed to parse createdAt:', request && request.createdAt, e);
+    return false;
+  }
+}
+
 // Helper function to calculate distance between two coordinates (Haversine formula)
 function calculateDistance(lat1, lon1, lat2, lon2) {
   const R = 6371; // Radius of the Earth in km
@@ -153,10 +169,14 @@ function checkKeywordMatch(text1, text2, checkPincode = false) {
 
 // Cloud Function to find matches for a ride request
 exports.findMatches = functions.https.onCall(async (data, context) => {
+  // Set CORS headers (though onCall should handle this automatically)
   // Verify authentication
   if (!context.auth) {
+    console.error('[findMatches] Unauthenticated request');
     throw new functions.https.HttpsError('unauthenticated', 'User must be authenticated');
   }
+  
+  console.log('[findMatches] Request received from user:', context.auth.uid);
 
   const { rideRequestId } = data;
   if (!rideRequestId) {
@@ -176,6 +196,25 @@ exports.findMatches = functions.https.onCall(async (data, context) => {
     // Verify the ride request belongs to the user
     if (userRideRequest.userId !== userId) {
       throw new functions.https.HttpsError('permission-denied', 'Not authorized');
+    }
+
+    // If this request itself is expired, mark it inactive and return no matches
+    if (isRequestExpired(userRideRequest)) {
+      console.log('[findMatches] User ride request is expired, marking inactive:', rideRequestId);
+      try {
+        await db.collection('ride_requests').doc(rideRequestId).update({
+          status: 'inactive',
+          expiredAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+      } catch (e) {
+        console.error('[findMatches] Failed to mark request inactive:', e);
+      }
+      return {
+        success: true,
+        matches: [],
+        expired: true,
+        message: 'Your ride request has expired. Please create a new one.'
+      };
     }
 
     // Get all active ride requests except the user's own
@@ -204,6 +243,12 @@ exports.findMatches = functions.https.onCall(async (data, context) => {
       if (otherRideRequest.userId === userId) {
         continue;
       }
+
+       // Skip expired requests
+       if (isRequestExpired(otherRideRequest)) {
+         console.log('[findMatches] Skipping expired request:', otherRideRequestId);
+         continue;
+       }
 
       // Validate required fields
       if (!otherRideRequest.pickupLatLng || !otherRideRequest.pickupText || 
@@ -380,11 +425,15 @@ exports.findMatches = functions.https.onCall(async (data, context) => {
       matches: matches
     };
   } catch (error) {
-    console.error('Error finding matches:', error);
-    return {
-      success: false,
-      error: error.message
-    };
+    console.error('[findMatches] Error finding matches:', error);
+    console.error('[findMatches] Error stack:', error.stack);
+    
+    // Return proper error format for Firebase callable functions
+    if (error instanceof functions.https.HttpsError) {
+      throw error;
+    }
+    
+    throw new functions.https.HttpsError('internal', 'An error occurred while finding matches: ' + error.message);
   }
 });
 

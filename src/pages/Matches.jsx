@@ -198,13 +198,7 @@ const Matches = () => {
   };
 
   const updateMatchLists = (allRequests, source) => {
-    const pending = allRequests.filter(r => r.status === 'pending');
     const mutual = allRequests.filter(r => r.status === 'mutual' || r.status === 'accepted');
-    
-    setPendingRequests(prev => {
-      const combined = [...prev.filter(r => r.isIncoming !== (source === 'received')), ...pending];
-      return combined.filter((v, i, a) => a.findIndex(t => t.id === v.id) === i);
-    });
     
     setMutualMatches(prev => {
       const combined = [...prev, ...mutual];
