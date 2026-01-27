@@ -12,6 +12,7 @@ const Matches = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [potentialMatches, setPotentialMatches] = useState([]);
+  const [pendingRequests, setPendingRequests] = useState([]);
   const [mutualMatches, setMutualMatches] = useState([]);
   const [activeTab, setActiveTab] = useState('potential');
   const [loading, setLoading] = useState(true);
@@ -198,7 +199,13 @@ const Matches = () => {
   };
 
   const updateMatchLists = (allRequests, source) => {
+    const pending = allRequests.filter(r => r.status === 'pending');
     const mutual = allRequests.filter(r => r.status === 'mutual' || r.status === 'accepted');
+    
+    setPendingRequests(prev => {
+      const combined = [...prev.filter(r => r.isIncoming !== (source === 'received')), ...pending];
+      return combined.filter((v, i, a) => a.findIndex(t => t.id === v.id) === i);
+    });
     
     setMutualMatches(prev => {
       const combined = [...prev, ...mutual];
@@ -287,6 +294,7 @@ const Matches = () => {
 
   const renderMatchCard = (match, type) => {
     const isPotential = type === 'potential';
+    const isPending = type === 'pending';
     const isMutual = type === 'mutual';
     const name = isPotential ? match.name : match.otherUser?.name || 'User';
     const gender = isPotential ? match.gender : match.otherUser?.gender || 'N/A';
@@ -363,6 +371,35 @@ const Matches = () => {
           </button>
         )}
 
+        {isPending && match.isIncoming && (
+          <div className="space-y-3">
+            <p className="text-sm sm:text-base text-dark-600 mb-4 font-medium">📨 Sent you a share request</p>
+            <div className="flex flex-col sm:flex-row gap-2">
+              <button
+                onClick={() => handleAcceptRequest(match.id)}
+                className="flex-1 bg-gradient-to-r from-green-600 to-green-700 text-white py-3 px-4 rounded-lg font-semibold hover:from-green-700 hover:to-green-800 shadow-md hover:shadow-lg transition-all"
+              >
+                ✓ Accept
+              </button>
+              <button
+                onClick={() => handleDeclineRequest(match.id)}
+                className="flex-1 bg-gradient-to-r from-red-600 to-red-700 text-white py-3 px-4 rounded-lg font-semibold hover:from-red-700 hover:to-red-800 shadow-md hover:shadow-lg transition-all"
+              >
+                ✕ Decline
+              </button>
+            </div>
+          </div>
+        )}
+
+        {isPending && !match.isIncoming && (
+          <div>
+            <p className="text-sm sm:text-base text-dark-600 mb-3 font-medium">📤 Request sent - waiting for response</p>
+            <div className="bg-yellow-50 border-2 border-yellow-200 rounded-lg p-3 text-sm sm:text-base text-yellow-700 font-semibold">
+              ⏳ Pending
+            </div>
+          </div>
+        )}
+
         {isMutual && (
           <div className="space-y-3">
             <p className="text-sm sm:text-base text-green-600 mb-4 font-semibold">✓ Mutual match! You can chat now.</p>
@@ -412,6 +449,16 @@ const Matches = () => {
               )}
             </button>
             <button
+              onClick={() => setActiveTab('pending')}
+              className={`pb-3 px-4 sm:px-6 font-semibold text-sm sm:text-base transition-all ${
+                activeTab === 'pending'
+                  ? 'border-b-3 border-primary-600 text-primary-600'
+                  : 'text-dark-600 hover:text-primary-600'
+              }`}
+            >
+              Pending Requests <span className="ml-2 px-2 py-1 bg-yellow-100 text-yellow-700 rounded-full text-xs">{pendingRequests.length}</span>
+            </button>
+            <button
               onClick={() => setActiveTab('mutual')}
               className={`pb-3 px-4 sm:px-6 font-semibold text-sm sm:text-base transition-all ${
                 activeTab === 'mutual'
@@ -444,6 +491,20 @@ const Matches = () => {
                   ) : (
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
                       {potentialMatches.map((match) => renderMatchCard(match, 'potential'))}
+                    </div>
+                  )}
+                </>
+              )}
+
+              {activeTab === 'pending' && (
+                <>
+                  {pendingRequests.length === 0 ? (
+                    <div className="card text-center p-8 sm:p-12">
+                      <p className="text-dark-600 text-base sm:text-lg">No pending requests.</p>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
+                      {pendingRequests.map((match) => renderMatchCard(match, 'pending'))}
                     </div>
                   )}
                 </>

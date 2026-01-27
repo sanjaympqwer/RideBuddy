@@ -479,6 +479,12 @@ exports.onRideRequestCreated = functions.firestore
           continue;
         }
 
+        // Skip expired requests
+        if (isRequestExpired(otherRequest)) {
+          console.log('[onRideRequestCreated] Skipping expired request:', otherRequestId);
+          continue;
+        }
+
         // Validate required fields
         if (!otherRequest.pickupLatLng || !otherRequest.pickupText || 
             !otherRequest.dropLatLng || !otherRequest.dropText) {
