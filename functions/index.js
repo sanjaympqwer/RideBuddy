@@ -773,3 +773,87 @@ exports.expireOldRideRequests = functions.pubsub
     }
   });
 
+// Daily cleanup: Delete all ride_requests, matches, and potential_matches at midnight UTC
+// Users start fresh each new day
+exports.dailyCleanup = functions.pubsub
+  .schedule('0 0 * * *')  // Every day at 00:00 UTC (midnight)
+  .timeZone('UTC')
+  .onRun(async (context) => {
+    console.log('[dailyCleanup] Starting daily cleanup...');
+    
+    const BATCH_SIZE = 500; // Firestore batch limit
+    
+    const deleteCollection = async (collectionName) => {
+      let totalDeleted = 0;
+      let hasMore = true;
+      
+      while (hasMore) {
+        const snapshot = await db.collection(collectionName).limit(BATCH_SIZE).get();
+        if (snapshot.empty) {
+          hasMore = false;
+          break;
+        }
+        
+        const batch = db.batch();
+        snapshot.docs.forEach((doc) => batch.delete(doc.ref));
+        await batch.commit();
+        totalDeleted += snapshot.docs.length;
+        console.log(`[dailyCleanup] Deleted ${snapshot.docs.length} from ${collectionName} (total: ${totalDeleted})`);
+        
+        if (snapshot.docs.length < BATCH_SIZE) {
+          hasMore = false;
+        }
+      }
+      
+      return totalDeleted;
+    };
+    
+    try {
+      const rideRequestsDeleted = await deleteCollection('ride_requests');
+      const matchesDeleted = await deleteCollection('matches');
+      const potentialMatchesDeleted = await deleteCollection('potential_matches');
+      
+      console.log(`[dailyCleanup] Complete. ride_requests: ${rideRequestsDeleted}, matches: ${matchesDeleted}, potential_matches: ${potentialMatchesDeleted}`);
+      return null;
+    } catch (error) {
+      console.error('[dailyCleanup] Error:', error);
+      return null;
+    }
+  });
+
+// When a new message is created, update the recipient's unread count
+// Structure: users/{userId}/prefs/unread = { [matchId]: count }
+exports.onMessageCreated = functions.firestore
+  .document('chats/{matchId}/messages/{messageId}')
+  .onCreate(async (snap, context) => {
+    const message = snap.data();
+    const matchId = context.params.matchId;
+    const senderId = message.senderId;
+
+    if (!senderId) return null;
+
+    try {
+      const matchDoc = await db.collection('matches').doc(matchId).get();
+      if (!matchDoc.exists) return null;
+
+      const matchData = matchDoc.data();
+      const userA = matchData.userA;
+      const userB = matchData.userB;
+
+      const recipientId = senderId === userA ? userB : userA;
+
+      const unreadRef = db.collection('users').doc(recipientId).collection('prefs').doc('unread');
+
+      await unreadRef.set(
+        { [matchId]: admin.firestore.FieldValue.increment(1) },
+        { merge: true }
+      );
+
+      console.log(`[onMessageCreated] Updated unread for user ${recipientId}, match ${matchId}`);
+      return null;
+    } catch (error) {
+      console.error('[onMessageCreated] Error:', error);
+      return null;
+    }
+  });
+

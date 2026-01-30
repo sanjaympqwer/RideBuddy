@@ -1,11 +1,13 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { useUnreadCount } from '../hooks/useUnreadCount';
 
 const Navbar = () => {
   const { currentUser, logout } = useAuth();
   const navigate = useNavigate();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const unreadCount = useUnreadCount(currentUser?.uid);
 
   const handleLogout = async () => {
     try {
@@ -45,9 +47,14 @@ const Navbar = () => {
                 </Link>
                 <Link
                   to="/matches"
-                  className="text-dark-700 hover:text-primary-600 px-3 lg:px-4 py-2 rounded-lg text-sm lg:text-base font-medium hover:bg-primary-50 transition-colors"
+                  className="relative text-dark-700 hover:text-primary-600 px-3 lg:px-4 py-2 rounded-lg text-sm lg:text-base font-medium hover:bg-primary-50 transition-colors"
                 >
                   Matches
+                  {unreadCount > 0 && (
+                    <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] flex items-center justify-center px-1 bg-red-500 text-white text-xs font-bold rounded-full animate-pulse">
+                      {unreadCount > 99 ? '99+' : unreadCount}
+                    </span>
+                  )}
                 </Link>
                 <button
                   onClick={handleLogout}
@@ -107,9 +114,14 @@ const Navbar = () => {
                   <Link
                     to="/matches"
                     onClick={() => setMobileMenuOpen(false)}
-                    className="text-dark-700 hover:text-primary-600 px-4 py-2 rounded-lg font-medium hover:bg-primary-50 transition-colors"
+                    className="relative text-dark-700 hover:text-primary-600 px-4 py-2 rounded-lg font-medium hover:bg-primary-50 transition-colors"
                   >
                     Matches
+                    {unreadCount > 0 && (
+                      <span className="absolute top-2 right-4 min-w-[18px] h-[18px] flex items-center justify-center px-1 bg-red-500 text-white text-xs font-bold rounded-full animate-pulse">
+                        {unreadCount > 99 ? '99+' : unreadCount}
+                      </span>
+                    )}
                   </Link>
                   <button
                     onClick={handleLogout}

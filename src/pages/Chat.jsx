@@ -9,7 +9,10 @@ import {
   addDoc, 
   serverTimestamp,
   doc,
-  getDoc
+  getDoc,
+  setDoc,
+  updateDoc,
+  deleteField
 } from 'firebase/firestore';
 import { db } from '../firebase/config';
 import Navbar from '../components/Navbar';
@@ -46,6 +49,17 @@ const Chat = () => {
     };
 
     fetchMatchDetails();
+
+    // Clear unread count when user opens this chat
+    const clearUnread = async () => {
+      try {
+        const unreadRef = doc(db, 'users', currentUser.uid, 'prefs', 'unread');
+        await setDoc(unreadRef, { [matchId]: deleteField() }, { merge: true });
+      } catch (err) {
+        console.error('Error clearing unread:', err);
+      }
+    };
+    clearUnread();
 
     // Subscribe to messages
     const messagesQuery = query(
