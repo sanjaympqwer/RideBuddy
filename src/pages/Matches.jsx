@@ -156,23 +156,23 @@ const Matches = () => {
     const unsubscribe1 = onSnapshot(matchesQuery, async (snapshot) => {
       try {
         const requests = await Promise.all(
-          snapshot.docs.map(async (doc) => {
+          snapshot.docs.map(async (docSnap) => {
             try {
-              const data = doc.data();
+              const data = docSnap.data();
               if (!data || !data.userB) {
-                console.warn('[fetchMatchRequests] Missing userB in match:', doc.id);
+                console.warn('[fetchMatchRequests] Missing userB in match:', docSnap.id);
                 return null;
               }
               const otherUserDoc = await getDoc(doc(db, 'users', data.userB));
               const otherUser = otherUserDoc.exists() ? otherUserDoc.data() : {};
               return {
-                id: doc.id,
+                id: docSnap.id,
                 ...data,
                 otherUser,
                 isIncoming: false
               };
             } catch (err) {
-              console.error('[fetchMatchRequests] Error processing doc:', doc.id, err);
+              console.error('[fetchMatchRequests] Error processing doc:', docSnap.id, err);
               return null;
             }
           })
@@ -194,23 +194,23 @@ const Matches = () => {
     const unsubscribe2 = onSnapshot(matchesQuery2, async (snapshot) => {
       try {
         const requests = await Promise.all(
-          snapshot.docs.map(async (doc) => {
+          snapshot.docs.map(async (docSnap) => {
             try {
-              const data = doc.data();
+              const data = docSnap.data();
               if (!data || !data.userA) {
-                console.warn('[fetchMatchRequests] Missing userA in match:', doc.id);
+                console.warn('[fetchMatchRequests] Missing userA in match:', docSnap.id);
                 return null;
               }
               const otherUserDoc = await getDoc(doc(db, 'users', data.userA));
               const otherUser = otherUserDoc.exists() ? otherUserDoc.data() : {};
               return {
-                id: doc.id,
+                id: docSnap.id,
                 ...data,
                 otherUser,
                 isIncoming: true
               };
             } catch (err) {
-              console.error('[fetchMatchRequests] Error processing doc:', doc.id, err);
+              console.error('[fetchMatchRequests] Error processing doc:', docSnap.id, err);
               return null;
             }
           })
