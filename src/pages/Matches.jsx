@@ -6,6 +6,7 @@ import { httpsCallable } from 'firebase/functions';
 import { db, functions } from '../firebase/config';
 import Navbar from '../components/Navbar';
 import ProtectedRoute from '../components/ProtectedRoute';
+import { startCall } from '../voice/twilioClient';
 
 const Matches = () => {
   const { currentUser } = useAuth();
@@ -445,13 +446,21 @@ const Matches = () => {
 
         {isMutual && (
           <div className="space-y-3">
-            <p className="text-sm sm:text-base text-green-600 mb-4 font-semibold">✓ Mutual match! You can chat now.</p>
-            <button
-              onClick={() => navigate(`/chat/${match.id}`)}
-              className="btn-primary w-full text-sm sm:text-base"
-            >
-              💬 Open Chat
-            </button>
+            <p className="text-sm sm:text-base text-green-600 mb-2 font-semibold">✓ Mutual match! You can chat or call.</p>
+            <div className="flex flex-col sm:flex-row gap-2">
+              <button
+                onClick={() => startCall(match.id)}
+                className="btn-secondary flex-1 text-sm sm:text-base"
+              >
+                📞 Voice Call
+              </button>
+              <button
+                onClick={() => navigate(`/chat/${match.id}`)}
+                className="btn-primary flex-1 text-sm sm:text-base"
+              >
+                💬 Open Chat
+              </button>
+            </div>
           </div>
         )}
       </div>

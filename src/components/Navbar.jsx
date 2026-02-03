@@ -52,7 +52,7 @@ const Navbar = () => {
                   Matches
                   {unreadCount > 0 && (
                     <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] flex items-center justify-center px-1 bg-red-500 text-white text-xs font-bold rounded-full animate-pulse">
-                      {unreadCount > 99 ? '99+' : unreadCount}
+                      {unreadCount > 9 ? '9+' : unreadCount}
                     </span>
                   )}
                 </Link>

@@ -1,8 +1,22 @@
 const functions = require('firebase-functions');
 const admin = require('firebase-admin');
+const twilio = require('twilio');
+
 admin.initializeApp();
 
 const db = admin.firestore();
+
+// Twilio configuration (set these as environment variables in your Functions environment)
+const {
+  TWILIO_ACCOUNT_SID,
+  TWILIO_API_KEY_SID,
+  TWILIO_API_KEY_SECRET,
+  TWILIO_TWIML_APP_SID,
+} = process.env;
+
+if (!TWILIO_ACCOUNT_SID || !TWILIO_API_KEY_SID || !TWILIO_API_KEY_SECRET || !TWILIO_TWIML_APP_SID) {
+  console.warn('[Twilio] Environment variables are not fully set. Voice calling will not work until they are configured.');
+}
 
 // Ride request expiry configuration (30 minutes)
 const REQUEST_EXPIRY_MS = 30 * 60 * 1000;
@@ -856,4 +870,104 @@ exports.onMessageCreated = functions.firestore
       return null;
     }
   });
+
+// Generate a Twilio access token for the authenticated user
+// Used by the web client to initialize Twilio Voice SDK without exposing credentials
+exports.getTwilioToken = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError('unauthenticated', 'User must be authenticated');
+  }
+
+  if (!TWILIO_ACCOUNT_SID || !TWILIO_API_KEY_SID || !TWILIO_API_KEY_SECRET || !TWILIO_TWIML_APP_SID) {
+    console.error('[getTwilioToken] Twilio env vars missing');
+    throw new functions.https.HttpsError('failed-precondition', 'Twilio is not configured on the server');
+  }
+
+  const identity = context.auth.uid;
+
+  try {
+    const AccessToken = twilio.jwt.AccessToken;
+    const VoiceGrant = AccessToken.VoiceGrant;
+
+    const voiceGrant = new VoiceGrant({
+      outgoingApplicationSid: TWILIO_TWIML_APP_SID,
+      incomingAllow: true,
+    });
+
+    const token = new AccessToken(
+      TWILIO_ACCOUNT_SID,
+      TWILIO_API_KEY_SID,
+      TWILIO_API_KEY_SECRET,
+      { identity }
+    );
+
+    token.addGrant(voiceGrant);
+
+    const jwt = token.toJwt();
+    console.log('[getTwilioToken] Generated token for user', identity);
+
+    return { token: jwt, identity };
+  } catch (error) {
+    console.error('[getTwilioToken] Error generating token:', error);
+    throw new functions.https.HttpsError('internal', 'Failed to generate Twilio token');
+  }
+});
+
+// Twilio Voice webhook: decides how to connect callers based on matchId and Firebase users
+exports.voiceTwiML = functions.https.onRequest(async (req, res) => {
+  if (!TWILIO_ACCOUNT_SID) {
+    console.error('[voiceTwiML] Twilio not configured');
+    res.status(500).send('Twilio not configured');
+    return;
+  }
+
+  const twiml = new twilio.twiml.VoiceResponse();
+
+  try {
+    const from = req.body.From || '';
+    // For Twilio Client, From is like 'client:uid'
+    const callerIdentity = from.startsWith('client:') ? from.substring(7) : from;
+    const matchId = req.body.matchId || req.body.To || null;
+
+    console.log('[voiceTwiML] Incoming call', { from, callerIdentity, matchId });
+
+    if (!callerIdentity || !matchId) {
+      twiml.say('Invalid call parameters.');
+      res.type('text/xml').send(twiml.toString());
+      return;
+    }
+
+    const matchDoc = await db.collection('matches').doc(matchId).get();
+    if (!matchDoc.exists) {
+      console.warn('[voiceTwiML] Match not found:', matchId);
+      twiml.say('This match no longer exists.');
+      res.type('text/xml').send(twiml.toString());
+      return;
+    }
+
+    const matchData = matchDoc.data();
+    const userA = matchData.userA;
+    const userB = matchData.userB;
+
+    if (callerIdentity !== userA && callerIdentity !== userB) {
+      console.warn('[voiceTwiML] Caller not part of match', { callerIdentity, matchId });
+      twiml.say('You are not allowed to call this user.');
+      res.type('text/xml').send(twiml.toString());
+      return;
+    }
+
+    const recipientId = callerIdentity === userA ? userB : userA;
+
+    const dial = twiml.dial();
+    dial.client(recipientId);
+
+    console.log('[voiceTwiML] Connecting', callerIdentity, 'to', recipientId, 'for match', matchId);
+
+    res.type('text/xml').send(twiml.toString());
+  } catch (error) {
+    console.error('[voiceTwiML] Error handling call:', error);
+    twiml.say('An error occurred. Please try again later.');
+    res.type('text/xml').send(twiml.toString());
+  }
+});
 

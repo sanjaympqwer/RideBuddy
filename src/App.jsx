@@ -7,20 +7,24 @@ import Matches from './pages/Matches';
 import MyRequests from './pages/MyRequests';
 import Chat from './pages/Chat';
 import PaymentSplit from './pages/PaymentSplit';
+import CallBar from './components/CallBar';
 
 function App() {
   return (
     <Router>
       <AuthProvider>
-        <Routes>
-          <Route path="/" element={<Landing />} />
-          <Route path="/login" element={<Login />} />
-          <Route path="/create-ride" element={<CreateRide />} />
-          <Route path="/my-requests" element={<MyRequests />} />
-          <Route path="/matches" element={<Matches />} />
-          <Route path="/chat/:matchId" element={<Chat />} />
-          <Route path="/payment-split" element={<PaymentSplit />} />
-        </Routes>
+        <>
+          <Routes>
+            <Route path="/" element={<Landing />} />
+            <Route path="/login" element={<Login />} />
+            <Route path="/create-ride" element={<CreateRide />} />
+            <Route path="/my-requests" element={<MyRequests />} />
+            <Route path="/matches" element={<Matches />} />
+            <Route path="/chat/:matchId" element={<Chat />} />
+            <Route path="/payment-split" element={<PaymentSplit />} />
+          </Routes>
+          <CallBar />
+        </>
       </AuthProvider>
     </Router>
   );
