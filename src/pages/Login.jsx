@@ -1,10 +1,9 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { PhoneAuthProvider, RecaptchaVerifier, sendEmailVerification } from 'firebase/auth';
-import { doc, getDoc, updateDoc } from 'firebase/firestore';
+import { sendEmailVerification } from 'firebase/auth';
 import { useAuth } from '../context/AuthContext';
 import Navbar from '../components/Navbar';
-import { auth, db } from '../firebase/config';
+import { auth } from '../firebase/config';
 
 const Login = () => {
   const [isLogin, setIsLogin] = useState(true);
@@ -21,36 +20,9 @@ const Login = () => {
   const [idFileName, setIdFileName] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [isOtpStep, setIsOtpStep] = useState(false);
-  const [otpCode, setOtpCode] = useState('');
-  const [otpVerificationId, setOtpVerificationId] = useState('');
-  const [otpMode, setOtpMode] = useState('login'); // 'login' | 'signup'
 
   const { login, signup, logout } = useAuth();
   const navigate = useNavigate();
-
-  const getRecaptchaVerifier = () => {
-    if (typeof window === 'undefined') return null;
-    if (!window.recaptchaVerifier) {
-      window.recaptchaVerifier = new RecaptchaVerifier(auth, 'recaptcha-container', {
-        size: 'invisible',
-      });
-    }
-    return window.recaptchaVerifier;
-  };
-
-  const startOtpFlow = async (phoneNumber, mode) => {
-    const formatted = phoneNumber?.trim();
-    if (!formatted) {
-      throw new Error('Phone number is missing for OTP');
-    }
-    const verifier = getRecaptchaVerifier();
-    const provider = new PhoneAuthProvider(auth);
-    const verificationId = await provider.verifyPhoneNumber(formatted, verifier);
-    setOtpVerificationId(verificationId);
-    setOtpMode(mode);
-    setIsOtpStep(true);
-  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -74,17 +46,7 @@ const Login = () => {
           return;
         }
 
-        const userDocRef = doc(db, 'users', user.uid);
-        const snap = await getDoc(userDocRef);
-        if (!snap.exists()) {
-          throw new Error('User profile not found.');
-        }
-        const data = snap.data();
-        const phoneNumber = data.phone;
-
-        await startOtpFlow(phoneNumber, 'login');
-        setLoading(false);
-        return;
+        navigate('/create-ride');
       } else {
         if (!name || !gender || !age || !phone || !idType || !idFile) {
           setError('Please fill all required fields, including ID type and ID proof');
@@ -92,56 +54,10 @@ const Login = () => {
           return;
         }
         await signup(email, password, name, gender, parseInt(age, 10), phone, profilePicture, idType, idFile);
-
-        // After signup, start phone OTP verification
-        await startOtpFlow(phone, 'signup');
-        setError('We have sent an OTP to your phone and a verification link to your email. Verify both to secure your account.');
-        setLoading(false);
-        return;
+        setError('We sent a verification link to your email. Please verify it, then log in.');
       }
     } catch (err) {
       setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleVerifyOtp = async (e) => {
-    e.preventDefault();
-    setError('');
-    if (!otpVerificationId || !otpCode) {
-      setError('Please enter the OTP sent to your phone.');
-      return;
-    }
-    setLoading(true);
-    try {
-      const credential = PhoneAuthProvider.credential(otpVerificationId, otpCode);
-      // If credential creation succeeds, OTP is valid
-      const user = auth.currentUser;
-      if (user) {
-        const userDocRef = doc(db, 'users', user.uid);
-        await updateDoc(userDocRef, {
-          phoneVerified: true,
-          phoneVerifiedAt: new Date().toISOString(),
-        });
-      }
-
-      if (otpMode === 'signup') {
-        setIsOtpStep(false);
-        setOtpCode('');
-        setOtpVerificationId('');
-        setError('Phone verified. Please check your email, verify it, then log in.');
-        await logout();
-      } else {
-        // login
-        setIsOtpStep(false);
-        setOtpCode('');
-        setOtpVerificationId('');
-        navigate('/create-ride');
-      }
-    } catch (err) {
-      console.error('OTP verification error', err);
-      setError('Invalid OTP. Please check the code and try again.');
     } finally {
       setLoading(false);
     }
@@ -160,14 +76,14 @@ const Login = () => {
               {isLogin ? "Welcome back!" : "Join RideBuddy today"}
             </p>
           </div>
-          <form className="mt-6 sm:mt-8 space-y-5 sm:space-y-6" onSubmit={isOtpStep ? handleVerifyOtp : handleSubmit}>
+          <form className="mt-6 sm:mt-8 space-y-5 sm:space-y-6" onSubmit={handleSubmit}>
             {error && (
               <div className="bg-red-50 border-2 border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm sm:text-base">
                 {error}
               </div>
             )}
 
-            {!isLogin && !isOtpStep && (
+            {!isLogin && (
               <>
                 <div>
                   <label htmlFor="name" className="block text-sm sm:text-base font-semibold text-dark-700 mb-2">
@@ -331,7 +247,6 @@ const Login = () => {
               </>
             )}
 
-            {!isOtpStep && (
             <div>
               <label htmlFor="email" className="block text-sm sm:text-base font-semibold text-dark-700 mb-2">
                 Email address
@@ -348,79 +263,46 @@ const Login = () => {
                 placeholder="Email address"
               />
             </div>
-            )}
+            <div>
+              <label htmlFor="password" className="block text-sm sm:text-base font-semibold text-dark-700 mb-2">
+                Password
+              </label>
+              <input
+                id="password"
+                name="password"
+                type="password"
+                autoComplete="current-password"
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="input-field"
+                placeholder="Password"
+              />
+            </div>
 
-            {isOtpStep ? (
-              <>
-                <div>
-                  <label htmlFor="otp" className="block text-sm sm:text-base font-semibold text-dark-700 mb-2">
-                    Enter OTP sent to your phone
-                  </label>
-                  <input
-                    id="otp"
-                    name="otp"
-                    type="text"
-                    value={otpCode}
-                    onChange={(e) => setOtpCode(e.target.value)}
-                    className="input-field"
-                    placeholder="6-digit code"
-                  />
-                </div>
-                <div>
-                  <button
-                    type="submit"
-                    disabled={loading}
-                    className="btn-primary w-full disabled:opacity-50 disabled:cursor-not-allowed text-base sm:text-lg"
-                  >
-                    {loading ? 'Verifying OTP...' : 'Verify OTP'}
-                  </button>
-                </div>
-              </>
-            ) : (
-              <>
-                <div>
-                  <label htmlFor="password" className="block text-sm sm:text-base font-semibold text-dark-700 mb-2">
-                    Password
-                  </label>
-                  <input
-                    id="password"
-                    name="password"
-                    type="password"
-                    autoComplete="current-password"
-                    required
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    className="input-field"
-                    placeholder="Password"
-                  />
-                </div>
+            <div>
+              <button
+                type="submit"
+                disabled={loading}
+                className="btn-primary w-full disabled:opacity-50 disabled:cursor-not-allowed text-base sm:text-lg"
+              >
+                {loading ? 'Processing...' : (isLogin ? 'Sign in' : 'Sign up')}
+              </button>
+            </div>
 
-                <div>
-                  <button
-                    type="submit"
-                    disabled={loading}
-                    className="btn-primary w-full disabled:opacity-50 disabled:cursor-not-allowed text-base sm:text-lg"
-                  >
-                    {loading ? 'Processing...' : (isLogin ? 'Sign in' : 'Sign up')}
-                  </button>
-                </div>
-
-                <div className="text-center">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsLogin(!isLogin);
-                      setError('');
-                    }}
-                    className="text-primary-600 hover:text-primary-700 font-semibold text-sm sm:text-base"
-                  >
-                    {isLogin ? "Don't have an account? Sign up" : 'Already have an account? Sign in'}
-                  </button>
-                </div>
-              </>
-            )}
+            <div className="text-center">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsLogin(!isLogin);
+                  setError('');
+                }}
+                className="text-primary-600 hover:text-primary-700 font-semibold text-sm sm:text-base"
+              >
+                {isLogin ? "Don't have an account? Sign up" : 'Already have an account? Sign in'}
+              </button>
+            </div>
           </form>
-          <div id="recaptcha-container" />
         </div>
       </div>
     </div>
