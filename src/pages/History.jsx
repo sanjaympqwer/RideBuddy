@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { collection, getDocs, orderBy, query, where } from 'firebase/firestore';
+import { collection, getDocs, query, where } from 'firebase/firestore';
 import Navbar from '../components/Navbar';
 import ProtectedRoute from '../components/ProtectedRoute';
 import { useAuth } from '../context/AuthContext';
@@ -11,44 +11,89 @@ const History = () => {
   const [rideHistory, setRideHistory] = useState([]);
   const [acceptedHistory, setAcceptedHistory] = useState([]);
   const [error, setError] = useState('');
+  const [requestsError, setRequestsError] = useState('');
+  const [matchesError, setMatchesError] = useState('');
 
   useEffect(() => {
-    if (!currentUser) return;
+    if (!currentUser) {
+      setLoading(false);
+      return;
+    }
 
     const load = async () => {
       setLoading(true);
       setError('');
+      setRequestsError('');
+      setMatchesError('');
+
+      // Load ride requests
+      let requests = [];
       try {
-        // All ride requests created by the user
         const requestsQ = query(
           collection(db, 'ride_requests'),
-          where('userId', '==', currentUser.uid),
-          orderBy('createdAt', 'desc')
+          where('userId', '==', currentUser.uid)
         );
         const requestsSnap = await getDocs(requestsQ);
-        const requests = requestsSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-
-        // All matches where user is A or B
-        const matchesQ = query(
-          collection(db, 'matches'),
-          where('userA', '==', currentUser.uid)
-        );
-        const matchesQ2 = query(
-          collection(db, 'matches'),
-          where('userB', '==', currentUser.uid)
-        );
-        const [mSnap1, mSnap2] = await Promise.all([getDocs(matchesQ), getDocs(matchesQ2)]);
-        const matchDocs = [...mSnap1.docs, ...mSnap2.docs];
-        const matches = matchDocs.map((doc) => ({ id: doc.id, ...doc.data() }));
-
-        setRideHistory(requests);
-        setAcceptedHistory(matches);
+        requests = requestsSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+        console.log(`[History] Loaded ${requests.length} ride requests`);
       } catch (e) {
-        console.error('Error loading history', e);
-        setError('Failed to load history. Please try again later.');
-      } finally {
-        setLoading(false);
+        console.error('[History] Error loading ride requests:', e);
+        const errorMsg = e.message || 'Unknown error';
+        setRequestsError(`Failed to load ride requests: ${errorMsg}`);
+        console.error('[History] Full error details:', {
+          code: e.code,
+          message: e.message,
+          stack: e.stack
+        });
       }
+
+      // Load matches - try both queries separately to handle permissions better
+      let matches = [];
+      try {
+        // Query for matches where user is userA
+        try {
+          const matchesQ1 = query(
+            collection(db, 'matches'),
+            where('userA', '==', currentUser.uid)
+          );
+          const mSnap1 = await getDocs(matchesQ1);
+          matches.push(...mSnap1.docs.map((doc) => ({ id: doc.id, ...doc.data() })));
+        } catch (e1) {
+          console.warn('[History] Error loading matches as userA:', e1);
+        }
+
+        // Query for matches where user is userB
+        try {
+          const matchesQ2 = query(
+            collection(db, 'matches'),
+            where('userB', '==', currentUser.uid)
+          );
+          const mSnap2 = await getDocs(matchesQ2);
+          matches.push(...mSnap2.docs.map((doc) => ({ id: doc.id, ...doc.data() })));
+        } catch (e2) {
+          console.warn('[History] Error loading matches as userB:', e2);
+        }
+
+        // Remove duplicates (in case a match somehow has user as both A and B)
+        const uniqueMatches = matches.filter((match, index, self) =>
+          index === self.findIndex((m) => m.id === match.id)
+        );
+        matches = uniqueMatches;
+        console.log(`[History] Loaded ${matches.length} matches`);
+      } catch (e) {
+        console.error('[History] Error loading matches:', e);
+        const errorMsg = e.message || 'Unknown error';
+        setMatchesError(`Failed to load matches: ${errorMsg}`);
+        console.error('[History] Full error details:', {
+          code: e.code,
+          message: e.message,
+          stack: e.stack
+        });
+      }
+
+      setRideHistory(requests);
+      setAcceptedHistory(matches);
+      setLoading(false);
     };
 
     load();
@@ -78,9 +123,14 @@ const History = () => {
             <div className="space-y-10">
               <section>
                 <h2 className="text-xl sm:text-2xl font-bold text-dark-900 mb-4">Ride requests you created</h2>
-                {rideHistory.length === 0 ? (
+                {requestsError && (
+                  <div className="mb-4 bg-red-50 border-2 border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm sm:text-base">
+                    {requestsError}
+                  </div>
+                )}
+                {rideHistory.length === 0 && !requestsError ? (
                   <p className="text-sm sm:text-base text-dark-600">No ride requests found.</p>
-                ) : (
+                ) : rideHistory.length > 0 ? (
                   <div className="space-y-3">
                     {rideHistory.map((r) => (
                       <div
@@ -113,9 +163,14 @@ const History = () => {
 
               <section>
                 <h2 className="text-xl sm:text-2xl font-bold text-dark-900 mb-4">Requests you accepted / matches</h2>
-                {acceptedHistory.length === 0 ? (
+                {matchesError && (
+                  <div className="mb-4 bg-red-50 border-2 border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm sm:text-base">
+                    {matchesError}
+                  </div>
+                )}
+                {acceptedHistory.length === 0 && !matchesError ? (
                   <p className="text-sm sm:text-base text-dark-600">No accepted matches found.</p>
-                ) : (
+                ) : acceptedHistory.length > 0 ? (
                   <div className="space-y-3">
                     {acceptedHistory.map((m) => (
                       <div
