@@ -8,6 +8,7 @@ import MyRequests from './pages/MyRequests';
 import Chat from './pages/Chat';
 import PaymentSplit from './pages/PaymentSplit';
 import CallBar from './components/CallBar';
+import History from './pages/History';
 
 function App() {
   return (
@@ -22,6 +23,7 @@ function App() {
             <Route path="/matches" element={<Matches />} />
             <Route path="/chat/:matchId" element={<Chat />} />
             <Route path="/payment-split" element={<PaymentSplit />} />
+            <Route path="/history" element={<History />} />
           </Routes>
           <CallBar />
         </>

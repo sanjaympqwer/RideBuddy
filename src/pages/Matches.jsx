@@ -377,7 +377,10 @@ const Matches = () => {
             <div className="space-y-1 text-sm text-dark-600">
               <p><span className="font-semibold">Gender:</span> {gender}</p>
               {age && <p><span className="font-semibold">Age:</span> {age} years</p>}
-              <p><span className="font-semibold">Phone:</span> {phone}</p>
+              <p>
+                <span className="font-semibold">Phone:</span>{' '}
+                <span className="italic text-dark-500">Hidden for safety (use in-app call)</span>
+              </p>
             </div>
           </div>
         </div>

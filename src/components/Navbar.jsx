@@ -56,6 +56,12 @@ const Navbar = () => {
                     </span>
                   )}
                 </Link>
+                  <Link
+                    to="/history"
+                    className="text-dark-700 hover:text-primary-600 px-3 lg:px-4 py-2 rounded-lg text-sm lg:text-base font-medium hover:bg-primary-50 transition-colors"
+                  >
+                    History
+                  </Link>
                 <button
                   onClick={handleLogout}
                   className="bg-gradient-to-r from-primary-600 to-primary-700 text-white px-4 lg:px-6 py-2 rounded-lg text-sm lg:text-base font-semibold hover:from-primary-700 hover:to-primary-800 shadow-md hover:shadow-lg transition-all"
@@ -122,6 +128,13 @@ const Navbar = () => {
                         {unreadCount > 99 ? '99+' : unreadCount}
                       </span>
                     )}
+                  </Link>
+                  <Link
+                    to="/history"
+                    onClick={() => setMobileMenuOpen(false)}
+                    className="text-dark-700 hover:text-primary-600 px-4 py-2 rounded-lg font-medium hover:bg-primary-50 transition-colors"
+                  >
+                    History
                   </Link>
                   <button
                     onClick={handleLogout}

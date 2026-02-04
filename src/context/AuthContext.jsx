@@ -7,7 +7,8 @@ import {
   getRedirectResult,
   GoogleAuthProvider,
   signOut,
-  onAuthStateChanged
+  onAuthStateChanged,
+  sendEmailVerification,
 } from 'firebase/auth';
 import { doc, setDoc, getDoc } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
@@ -64,11 +65,12 @@ export const AuthProvider = ({ children }) => {
     return unsubscribe;
   }, []);
 
-  const signup = async (email, password, name, gender, age, phone, profilePicture) => {
+  const signup = async (email, password, name, gender, age, phone, profilePicture, idType, idFile) => {
     const userCredential = await createUserWithEmailAndPassword(auth, email, password);
     const user = userCredential.user;
     
     let photoUrl = user.photoURL || '';
+    let idProofUrl = '';
     
     // Upload profile picture if provided
     if (profilePicture) {
@@ -81,6 +83,18 @@ export const AuthProvider = ({ children }) => {
         // Continue with signup even if photo upload fails
       }
     }
+
+    // Upload government ID proof if provided
+    if (idFile && idType) {
+      try {
+        const idRef = ref(storage, `id_proofs/${user.uid}/${idType}_${Date.now()}`);
+        await uploadBytes(idRef, idFile);
+        idProofUrl = await getDownloadURL(idRef);
+      } catch (error) {
+        console.error('Error uploading ID proof:', error);
+        // Continue with signup even if ID upload fails, but don't mark as verified
+      }
+    }
     
     // Create user profile in Firestore
     await setDoc(doc(db, 'users', user.uid), {
@@ -90,8 +104,18 @@ export const AuthProvider = ({ children }) => {
       photoUrl,
       gender,
       age,
+      idType: idType || null,
+      idProofUrl: idProofUrl || '',
+      idVerified: false,
+      phoneVerified: false,
       createdAt: new Date().toISOString()
     });
+
+    try {
+      await sendEmailVerification(user);
+    } catch (error) {
+      console.error('Error sending email verification:', error);
+    }
 
     return userCredential;
   };
