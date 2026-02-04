@@ -158,7 +158,7 @@ const History = () => {
                       </div>
                     ))}
                   </div>
-                )}
+                ) : null}
               </section>
 
               <section>
@@ -191,7 +191,7 @@ const History = () => {
                       </div>
                     ))}
                   </div>
-                )}
+                ) : null}
               </section>
             </div>
           )}
