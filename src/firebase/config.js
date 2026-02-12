@@ -7,7 +7,7 @@ import { getStorage } from 'firebase/storage';
 // Firebase configuration
 // For Firebase JS SDK v7.20.0 and later, measurementId is optional
 const firebaseConfig = {
-  apiKey: "AIzaSyC4kDiXgczczNztcFiHrK93c32VR9S5TJY",
+  apiKey: "AQ.Ab8RN6JSsDVwEE3G5goYbzOF8c1h8njL_0sQcBUH3H40xFJJdg",
   authDomain: "rider-7ad2b.firebaseapp.com",
   projectId: "rider-7ad2b",
   storageBucket: "rider-7ad2b.firebasestorage.app",

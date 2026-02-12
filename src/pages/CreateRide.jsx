@@ -60,12 +60,12 @@ const CreateRide = () => {
 
   useEffect(() => {
     // Load Google Maps API
-    const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || 'AIzaSyBWWEeybOVvCcgD9OvNJ7UA3lOUUtg08D4';
+    const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
     
     if (!apiKey || apiKey === 'YOUR_GOOGLE_MAPS_API_KEY') {
-      setError('Google Maps API key not configured. Please see GOOGLE_MAPS_SETUP.md for instructions.');
+      setError('Google Maps API key not configured. Please set VITE_GOOGLE_MAPS_API_KEY in your environment (both local and Render).');
       console.error('⚠️ Google Maps API Key Missing!');
-      console.error('Please set VITE_GOOGLE_MAPS_API_KEY in .env file or update CreateRide.jsx');
+      console.error('Please set VITE_GOOGLE_MAPS_API_KEY in .env file locally and in Render env vars.');
       return;
     }
 
