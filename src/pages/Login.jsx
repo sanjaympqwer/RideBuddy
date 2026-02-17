@@ -39,9 +39,16 @@ const Login = () => {
         }
 
         if (!user.emailVerified) {
-          const url = `${window.location.origin}/verify-email`;
-          await sendEmailVerification(user, { url });
-          setError('We sent a verification link to your email. Please verify your email, then log in again.');
+          try {
+            const url = `${window.location.origin}/verify-email`;
+            await sendEmailVerification(user, { url });
+            setError('We sent a verification link to your email. Open the latest email and complete verification, then log in again.');
+          } catch (e) {
+            console.error('sendEmailVerification failed:', e);
+            setError(
+              'Could not send verification email. Make sure this domain is added in Firebase Console → Authentication → Settings → Authorized domains, then try again.'
+            );
+          }
           await logout();
           setLoading(false);
           return;

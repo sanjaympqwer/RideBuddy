@@ -149,6 +149,9 @@ export const AuthProvider = ({ children }) => {
       await sendEmailVerification(user, { url });
     } catch (error) {
       console.error('Error sending email verification:', error);
+      // Surface the real error to the UI so setup issues (like unauthorized domain) are visible.
+      // Common fix: Firebase Console → Authentication → Settings → Authorized domains → add your domain.
+      throw error;
     }
 
     return userCredential;
