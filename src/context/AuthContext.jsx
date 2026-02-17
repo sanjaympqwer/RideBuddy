@@ -142,7 +142,11 @@ export const AuthProvider = ({ children }) => {
     });
 
     try {
-      await sendEmailVerification(user);
+      const url =
+        typeof window !== 'undefined'
+          ? `${window.location.origin}/verify-email`
+          : 'https://rider-7ad2b.firebaseapp.com/__/auth/action';
+      await sendEmailVerification(user, { url });
     } catch (error) {
       console.error('Error sending email verification:', error);
     }

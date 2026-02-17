@@ -39,7 +39,8 @@ const Login = () => {
         }
 
         if (!user.emailVerified) {
-          await sendEmailVerification(user);
+          const url = `${window.location.origin}/verify-email`;
+          await sendEmailVerification(user, { url });
           setError('We sent a verification link to your email. Please verify your email, then log in again.');
           await logout();
           setLoading(false);

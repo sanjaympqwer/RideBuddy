@@ -9,6 +9,7 @@ import Chat from './pages/Chat';
 import PaymentSplit from './pages/PaymentSplit';
 import CallBar from './components/CallBar';
 import History from './pages/History';
+import VerifyEmail from './pages/VerifyEmail';
 
 function App() {
   return (
@@ -18,6 +19,7 @@ function App() {
           <Routes>
             <Route path="/" element={<Landing />} />
             <Route path="/login" element={<Login />} />
+            <Route path="/verify-email" element={<VerifyEmail />} />
             <Route path="/create-ride" element={<CreateRide />} />
             <Route path="/my-requests" element={<MyRequests />} />
             <Route path="/matches" element={<Matches />} />
