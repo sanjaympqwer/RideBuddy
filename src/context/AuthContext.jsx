@@ -8,9 +8,8 @@ import {
   GoogleAuthProvider,
   signOut,
   onAuthStateChanged,
-  sendEmailVerification,
 } from 'firebase/auth';
-import { doc, setDoc, getDoc, deleteDoc } from 'firebase/firestore';
+import { doc, setDoc, getDoc } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { auth, db, storage } from '../firebase/config';
 
@@ -51,40 +50,17 @@ export const AuthProvider = ({ children }) => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       setCurrentUser(user);
       if (user) {
-        // Only create/read Firestore profile after email is verified
+        // Simple: read user profile directly from users collection
         try {
-          if (user.emailVerified) {
-            const userRef = doc(db, 'users', user.uid);
-            const userDoc = await getDoc(userRef);
-
-            if (userDoc.exists()) {
-              setUserProfile(userDoc.data());
-            } else {
-              // If profile doesn't exist yet, migrate from pending_users (created at signup)
-              const pendingRef = doc(db, 'pending_users', user.uid);
-              const pendingDoc = await getDoc(pendingRef);
-
-              const pendingData = pendingDoc.exists() ? pendingDoc.data() : {};
-              const newProfile = {
-                ...pendingData,
-                // email is only written after verification
-                email: user.email || '',
-                createdAt: pendingData.createdAt || new Date().toISOString(),
-              };
-
-              await setDoc(userRef, newProfile, { merge: true });
-
-              if (pendingDoc.exists()) {
-                await deleteDoc(pendingRef);
-              }
-
-              setUserProfile(newProfile);
-            }
+          const userRef = doc(db, 'users', user.uid);
+          const userDoc = await getDoc(userRef);
+          if (userDoc.exists()) {
+            setUserProfile(userDoc.data());
           } else {
             setUserProfile(null);
           }
         } catch (e) {
-          console.error('[Auth] Failed loading/creating profile:', e);
+          console.error('[Auth] Failed loading profile:', e);
           setUserProfile(null);
         }
       } else {
@@ -127,9 +103,10 @@ export const AuthProvider = ({ children }) => {
       }
     }
     
-    // Stage profile data in pending_users (DO NOT store email in Firestore until email is verified)
-    await setDoc(doc(db, 'pending_users', user.uid), {
+    // Create user profile in Firestore immediately (no email verification gating)
+    await setDoc(doc(db, 'users', user.uid), {
       name,
+      email,
       phone: phone || '',
       photoUrl,
       gender,
@@ -140,19 +117,6 @@ export const AuthProvider = ({ children }) => {
       phoneVerified: false,
       createdAt: new Date().toISOString()
     });
-
-    try {
-      const url =
-        typeof window !== 'undefined'
-          ? `${window.location.origin}/verify-email`
-          : 'https://rider-7ad2b.firebaseapp.com/__/auth/action';
-      await sendEmailVerification(user, { url });
-    } catch (error) {
-      console.error('Error sending email verification:', error);
-      // Surface the real error to the UI so setup issues (like unauthorized domain) are visible.
-      // Common fix: Firebase Console → Authentication → Settings → Authorized domains → add your domain.
-      throw error;
-    }
 
     return userCredential;
   };

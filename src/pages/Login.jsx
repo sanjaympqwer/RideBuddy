@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { sendEmailVerification } from 'firebase/auth';
 import { useAuth } from '../context/AuthContext';
 import Navbar from '../components/Navbar';
 import { auth } from '../firebase/config';
@@ -37,23 +36,6 @@ const Login = () => {
         if (!user) {
           throw new Error('Login failed. Please try again.');
         }
-
-        if (!user.emailVerified) {
-          try {
-            const url = `${window.location.origin}/verify-email`;
-            await sendEmailVerification(user, { url });
-            setError('We sent a verification link to your email. Open the latest email and complete verification, then log in again.');
-          } catch (e) {
-            console.error('sendEmailVerification failed:', e);
-            setError(
-              'Could not send verification email. Make sure this domain is added in Firebase Console → Authentication → Settings → Authorized domains, then try again.'
-            );
-          }
-          await logout();
-          setLoading(false);
-          return;
-        }
-
         navigate('/create-ride');
       } else {
         if (!name || !gender || !age || !phone || !idType || !idFile) {
@@ -62,10 +44,8 @@ const Login = () => {
           return;
         }
         await signup(email, password, name, gender, parseInt(age, 10), phone, profilePicture, idType, idFile);
-        // Sign out so user must verify email before logging in
-        await logout();
-        setIsLogin(true);
-        setError('We sent a verification link to your email. Please verify it (use the latest email), then log in.');
+        // After signup, user is logged in by Firebase; go straight to create-ride
+        navigate('/create-ride');
       }
     } catch (err) {
       setError(err.message);
