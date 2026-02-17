@@ -249,52 +249,57 @@ const CreateRide = () => {
     };
   }, [showMapModal, mapsLoaded, mapCenter]);
 
+  const clearLocationLoading = (forField) => {
+    if (forField === 'pickup') setPickupLocationLoading(false);
+    else setDropLocationLoading(false);
+  };
+
   const getCurrentLocation = async (forField) => {
+    if (!navigator.geolocation) {
+      setError('Geolocation is not supported by your browser. Please use Chrome, Firefox, or Edge.');
+      return;
+    }
+    if (!window.google || !window.google.maps) {
+      setError('Google Maps is still loading or not configured. Wait a moment and try again, or use "Choose from Map".');
+      return;
+    }
+
+    if (forField === 'pickup') {
+      setPickupLocationLoading(true);
+    } else {
+      setDropLocationLoading(true);
+    }
+    setError('');
+
     try {
-      if (!navigator.geolocation) {
-        setError('Geolocation is not supported by your browser. Please use Chrome, Firefox, or Edge.');
-        return;
-      }
-
-      // Set loading state for the specific field
-      if (forField === 'pickup') {
-        setPickupLocationLoading(true);
-      } else {
-        setDropLocationLoading(true);
-      }
-      setError('');
-
       // Check if permission was previously denied (non-blocking check)
       try {
         if (navigator.permissions && navigator.permissions.query) {
           const permission = await navigator.permissions.query({ name: 'geolocation' });
           if (permission.state === 'denied') {
-            if (forField === 'pickup') {
-              setPickupLocationLoading(false);
-            } else {
-              setDropLocationLoading(false);
-            }
+            clearLocationLoading(forField);
             setError(
-              '📍 Location access is blocked!\n\n' +
-              'To enable:\n' +
-              '1. Click the lock icon (🔒) in your browser address bar\n' +
-              '2. Find "Location" and set it to "Allow"\n' +
-              '3. Refresh the page and try again\n\n' +
-              'Or use "Choose from Map" to select location manually.'
+              'Location access is blocked. Click the lock icon in the address bar → set Location to Allow, then refresh. Or use "Choose from Map".'
             );
             return;
           }
         }
       } catch (permError) {
         // Permission API might not be fully supported, continue anyway
-        console.log('Permission check not available:', permError);
       }
 
       // Get current position with timeout
       navigator.geolocation.getCurrentPosition(
       async (position) => {
-        const lat = position.coords.latitude;
-        const lng = position.coords.longitude;
+        let lat, lng;
+        try {
+          lat = position.coords.latitude;
+          lng = position.coords.longitude;
+        } catch (e) {
+          clearLocationLoading(forField);
+          setError('Could not read location. Try "Choose from Map" or type an address.');
+          return;
+        }
 
         console.log('Got GPS coordinates:', lat, lng);
 
@@ -372,18 +377,10 @@ const CreateRide = () => {
           const address = await Promise.race([addressPromise, timeoutPromise]);
 
           if (address) {
-            // Success! Set the readable address
-            if (forField === 'pickup') {
-              setPickupText(address);
-            } else {
-              setDropText(address);
-            }
-            setError(''); // Clear any errors
-            if (forField === 'pickup') {
-              setPickupLocationLoading(false);
-            } else {
-              setDropLocationLoading(false);
-            }
+            if (forField === 'pickup') setPickupText(address);
+            else setDropText(address);
+            setError('');
+            clearLocationLoading(forField);
           } else {
             // Geocoding failed, but we have coordinates
             // Try one more time with a different approach
@@ -401,98 +398,45 @@ const CreateRide = () => {
                     }
                     setError('');
                   } else {
-                    // Last resort: show coordinates but with a helpful message
                     const coordinateText = `Location: ${lat.toFixed(6)}, ${lng.toFixed(6)}`;
-                    if (forField === 'pickup') {
-                      setPickupText(coordinateText);
-                    } else {
-                      setDropText(coordinateText);
-                    }
-                    setError('Got your location! Address lookup is taking longer. You can edit the location manually or use "Choose from Map".');
+                    if (forField === 'pickup') setPickupText(coordinateText);
+                    else setDropText(coordinateText);
+                    setError('Location saved. Address lookup failed—you can edit the text or use "Choose from Map".');
                   }
-                  if (forField === 'pickup') {
-                    setPickupLocationLoading(false);
-                  } else {
-                    setDropLocationLoading(false);
-                  }
+                  clearLocationLoading(forField);
                 }
               );
             } else {
-              // Google Maps not available, use coordinates
               const coordinateText = `Location: ${lat.toFixed(6)}, ${lng.toFixed(6)}`;
-              if (forField === 'pickup') {
-                setPickupText(coordinateText);
-              } else {
-                setDropText(coordinateText);
-              }
-              setError('Got your location! Address lookup unavailable. Please use "Choose from Map" to select a readable address.');
-              if (forField === 'pickup') {
-                setPickupLocationLoading(false);
-              } else {
-                setDropLocationLoading(false);
-              }
+              if (forField === 'pickup') setPickupText(coordinateText);
+              else setDropText(coordinateText);
+              setError('Location saved. For a readable address, use "Choose from Map".');
+              clearLocationLoading(forField);
             }
           }
         } catch (err) {
           console.error('Error in geocoding process:', err);
-          // Fallback to coordinates - at least we have the location
           const coordinateText = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
-          if (forField === 'pickup') {
-            setPickupText(coordinateText);
-          } else {
-            setDropText(coordinateText);
-          }
-          setError('✅ Got your location! Address lookup failed, but coordinates are set. You can edit the address manually.');
-          if (forField === 'pickup') {
-            setPickupLocationLoading(false);
-          } else {
-            setDropLocationLoading(false);
-          }
+          if (forField === 'pickup') setPickupText(coordinateText);
+          else setDropText(coordinateText);
+          setError('Location saved; address lookup failed. You can edit the field or use "Choose from Map".');
+          clearLocationLoading(forField);
         }
       },
       (error) => {
-        if (forField === 'pickup') {
-          setPickupLocationLoading(false);
-        } else {
-          setDropLocationLoading(false);
-        }
-        let errorMessage = '';
-        let instructions = '';
-
+        clearLocationLoading(forField);
+        let msg = '';
         if (error.code === error.PERMISSION_DENIED) {
-          errorMessage = 'Location permission denied.';
-          instructions = `
-            <div class="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm">
-              <p class="font-semibold mb-2">How to enable location access:</p>
-              <ul class="list-disc list-inside space-y-1 text-left">
-                <li><strong>Chrome/Edge:</strong> Click the lock icon (🔒) in address bar → Site settings → Location → Allow</li>
-                <li><strong>Firefox:</strong> Click the shield icon → Permissions → Location → Allow</li>
-                <li><strong>Safari:</strong> Safari → Settings → Websites → Location → Allow</li>
-                <li>Or go to browser Settings → Privacy → Location → Allow for this site</li>
-              </ul>
-              <p class="mt-2 text-xs">After enabling, refresh the page and try again.</p>
-            </div>
-          `;
+          msg = 'Location permission denied. Allow location for this site in your browser (lock icon in address bar), then try again. Or use "Choose from Map".';
         } else if (error.code === error.POSITION_UNAVAILABLE) {
-          errorMessage = 'Location information unavailable. Your device location might be turned off.';
-          instructions = `
-            <div class="mt-3 p-3 bg-yellow-50 border border-yellow-200 rounded-lg text-sm">
-              <p class="font-semibold mb-2">Troubleshooting:</p>
-              <ul class="list-disc list-inside space-y-1 text-left">
-                <li>Make sure your device location/GPS is turned on</li>
-                <li>Check your device settings → Location Services</li>
-                <li>Try using "Choose from Map" instead</li>
-              </ul>
-            </div>
-          `;
+          msg = 'Location unavailable. Turn on device location/GPS or use "Choose from Map".';
         } else if (error.code === error.TIMEOUT) {
-          errorMessage = 'Location request timed out. Please try again.';
+          msg = 'Location request timed out. Try again or use "Choose from Map".';
         } else {
-          errorMessage = 'Error getting your location. Please try again or use "Choose from Map".';
-          console.error('Geolocation error details:', error);
+          msg = 'Could not get location. Try again or use "Choose from Map".';
+          console.error('Geolocation error:', error);
         }
-
-        setError(errorMessage + (instructions || ''));
+        setError(msg);
       },
       {
         enableHighAccuracy: true,
@@ -501,24 +445,10 @@ const CreateRide = () => {
       }
     );
     } catch (err) {
-      // Catch any unexpected errors in the entire function
       console.error('Unexpected error in getCurrentLocation:', err);
-      if (forField === 'pickup') {
-        setPickupLocationLoading(false);
-      } else {
-        setDropLocationLoading(false);
-      }
+      clearLocationLoading(forField);
       setError(
-        '❌ Something went wrong!\n\n' +
-        'Error: ' + (err.message || err.toString() || 'Unknown error') + '\n\n' +
-        'Please try:\n' +
-        '1. Refresh the page\n' +
-        '2. Check browser console (F12) for details\n' +
-        '3. Use "Choose from Map" as an alternative\n\n' +
-        'If the problem persists, make sure:\n' +
-        '• Google Maps API is properly configured\n' +
-        '• Geocoding API is enabled in Google Cloud Console\n' +
-        '• Your browser allows location access'
+        'Location could not be fetched. Use "Choose from Map" or type an address. (If you need current location, allow location for this site and refresh.)'
       );
     }
   };
