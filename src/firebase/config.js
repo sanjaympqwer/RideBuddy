@@ -9,13 +9,13 @@ import { getStorage } from 'firebase/storage';
 const firebaseApiKey = import.meta.env.VITE_FIREBASE_API_KEY || '';
 
 const firebaseConfig = {
-  apiKey: firebaseApiKey,
+  apiKey: "AIzaSyC-PFIHRg6A0DqaSIRE6tN4ogkU3JQlMt8",
   authDomain: "rider-7ad2b.firebaseapp.com",
   projectId: "rider-7ad2b",
   storageBucket: "rider-7ad2b.firebasestorage.app",
   messagingSenderId: "487231397502",
-  appId: "1:487231397502:web:2e791a9789281dc1adc22f",
-  measurementId: "G-4K9H6ZQNTL"
+  appId: "1:487231397502:web:2ae9fbfad38cc193adc22f",
+  measurementId: "G-QF911MRZLY"
 };
 
 // Firebase Auth only accepts Web API keys that start with "AIza". Keys in "AQ...." format are not supported and cause auth errors.
