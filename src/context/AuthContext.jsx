@@ -10,7 +10,7 @@ import {
   onAuthStateChanged,
   sendEmailVerification,
 } from 'firebase/auth';
-import { doc, setDoc, getDoc } from 'firebase/firestore';
+import { doc, setDoc, getDoc, deleteDoc } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { auth, db, storage } from '../firebase/config';
 
@@ -51,10 +51,41 @@ export const AuthProvider = ({ children }) => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       setCurrentUser(user);
       if (user) {
-        // Fetch user profile from Firestore
-        const userDoc = await getDoc(doc(db, 'users', user.uid));
-        if (userDoc.exists()) {
-          setUserProfile(userDoc.data());
+        // Only create/read Firestore profile after email is verified
+        try {
+          if (user.emailVerified) {
+            const userRef = doc(db, 'users', user.uid);
+            const userDoc = await getDoc(userRef);
+
+            if (userDoc.exists()) {
+              setUserProfile(userDoc.data());
+            } else {
+              // If profile doesn't exist yet, migrate from pending_users (created at signup)
+              const pendingRef = doc(db, 'pending_users', user.uid);
+              const pendingDoc = await getDoc(pendingRef);
+
+              const pendingData = pendingDoc.exists() ? pendingDoc.data() : {};
+              const newProfile = {
+                ...pendingData,
+                // email is only written after verification
+                email: user.email || '',
+                createdAt: pendingData.createdAt || new Date().toISOString(),
+              };
+
+              await setDoc(userRef, newProfile, { merge: true });
+
+              if (pendingDoc.exists()) {
+                await deleteDoc(pendingRef);
+              }
+
+              setUserProfile(newProfile);
+            }
+          } else {
+            setUserProfile(null);
+          }
+        } catch (e) {
+          console.error('[Auth] Failed loading/creating profile:', e);
+          setUserProfile(null);
         }
       } else {
         setUserProfile(null);
@@ -96,10 +127,9 @@ export const AuthProvider = ({ children }) => {
       }
     }
     
-    // Create user profile in Firestore
-    await setDoc(doc(db, 'users', user.uid), {
+    // Stage profile data in pending_users (DO NOT store email in Firestore until email is verified)
+    await setDoc(doc(db, 'pending_users', user.uid), {
       name,
-      email,
       phone: phone || '',
       photoUrl,
       gender,

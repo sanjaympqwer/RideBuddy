@@ -54,7 +54,10 @@ const Login = () => {
           return;
         }
         await signup(email, password, name, gender, parseInt(age, 10), phone, profilePicture, idType, idFile);
-        setError('We sent a verification link to your email. Please verify it, then log in.');
+        // Sign out so user must verify email before logging in
+        await logout();
+        setIsLogin(true);
+        setError('We sent a verification link to your email. Please verify it (use the latest email), then log in.');
       }
     } catch (err) {
       setError(err.message);
